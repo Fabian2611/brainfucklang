@@ -1,0 +1,77 @@
+.data
+arr v 6
+var a
+var b
+var c
+var acc
+
+var letterA
+
+var flag
+
+.macros
+mac incr _p1 $p2 -- _ for var args, $ for literal args
+    add acc _p1
+    add acc $p2
+    set _p1 200
+end
+
+mac asserteq _a $b
+    sub _a $b
+    while _a
+        set flag 35 -- #
+        print flag
+        halt
+    end
+end
+
+.text
+
+set a 5
+set b 10
+
+inc a 1
+dec b 1
+
+add a b -- consumes b
+
+set b 8
+let c b -- copies b over to c
+sub a b -- consumes b
+let b c -- restores b
+
+set a 10
+set acc 0
+call incr a 5 -- a is not modified because
+              -- the call is synonymous to:
+              -- let _p1 a
+              -- set $p2 5
+              -- add acc _p1
+              -- add acc $p2
+
+call asserteq acc 15
+call asserteq a 10
+call asserteq _p1 200
+
+set c 5
+while c -- meaning: while c neq 0
+    inc c 48
+    print letterA
+    dec c 48
+    dec c 1
+end
+
+set v#0 2
+set v#1 5
+sub v#1 v#0
+call asserteq v#1 3
+
+-- <arr>#<idx> can be used anywhere a variable can
+
+-- set v#6 0 -- will panic at compile time
+
+halt -- enters an infinite loop, which the host
+     -- VM interprets as std::process::exit(0)
+
+set flag 90 -- will never run
+print flag

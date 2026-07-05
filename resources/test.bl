@@ -1,0 +1,86 @@
+.data
+var a;
+var b;
+var c;
+var flag;
+arr arr1 3;
+var acc;
+var val;
+.macros
+mac check _actual $expected;
+  sub _actual $expected
+  set flag 121
+  while _actual
+    dec _actual 1
+    set flag 110
+  end
+  print flag
+end;
+mac addall _x $n;
+  add acc _x
+  add acc $n
+end;
+.text
+
+-- Test 1: set
+set a 5;
+call check a 5;
+
+-- Test 2: inc
+set a 5;
+inc a 3;
+call check a 8;
+
+-- Test 3: dec
+set a 10;
+dec a 4;
+call check a 6;
+
+-- Test 4: let (copy value, source is left untouched)
+set a 7;
+let b a;
+call check b 7;
+call check a 7;
+
+-- Test 5: add (a += b, b is zeroed)
+set a 3;
+set b 4;
+add a b;
+call check a 7;
+call check b 0;
+
+-- Test 6: sub (a -= b, b is zeroed)
+set a 10;
+set b 3;
+sub a b;
+call check a 7;
+call check b 0;
+
+-- Test 7: while loop
+set a 5;
+set b 0;
+while a
+  dec a 1
+  inc b 1
+end;
+call check a 0;
+call check b 5;
+
+-- Test 8: array set/get
+set arr1#0 11;
+set arr1#1 22;
+set arr1#2 33;
+let c arr1#1;
+call check c 22;
+
+-- Test 9: macro using a variable arg and a literal arg
+set acc 0;
+set val 3;
+call addall val 4;
+call check acc 7;
+
+-- Test 10: macros are call-by-value - the caller's var is untouched
+set val 100;
+call addall val 1;
+call check val 100;
+call check _x 0;
