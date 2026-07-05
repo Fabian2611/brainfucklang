@@ -70,6 +70,35 @@ call asserteq v#1 3
 
 -- set v#6 0 -- will panic at compile time
 
+dbg;
+
+set a 5;
+set b 3;
+
+dbg;
+
+mul a b;
+
+dbg;
+
+set a 5;
+set b 0;
+
+dbg;
+
+mul a b;
+
+dbg;
+
+set a 0;
+set b 3;
+
+dbg;
+
+mul a b;
+
+dbg;
+
 halt -- enters an infinite loop, which the host
      -- VM interprets as std::process::exit(0)
 

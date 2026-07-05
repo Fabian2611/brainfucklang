@@ -104,7 +104,7 @@ fn build_var_map<'a>(
     var_map: &mut HashMap<&'a str, VarAllocation>,
     var_space_size: &mut usize,
 ) {
-    let mut o = 1; // cell 0 is a temp register
+    let mut o = 4; // cells 0 to 3 are registers
     for v in var_space {
         match v {
             VarType::Var(n) => {
@@ -138,6 +138,12 @@ pub fn parse(code: String) -> (String, usize) {
     let mut var_space: Vec<VarType> = Vec::new();
     let mut var_space_size: usize = 0;
     let mut var_map: HashMap<&str, VarAllocation> = HashMap::new();
+
+    var_map.insert("__ra", VarAllocation::Var(0));
+    var_map.insert("__rb", VarAllocation::Var(1));
+    var_map.insert("__rc", VarAllocation::Var(2));
+    var_map.insert("__rd", VarAllocation::Var(3));
+
     let mut instructions: Vec<Instruction> = Vec::new();
     let mut macros: HashMap<&str, (Vec<&str>, Vec<Instruction>)> = HashMap::new();
     let mut current_macro: Option<(&str, Vec<&str>, Vec<Instruction>)> = None;
@@ -313,10 +319,10 @@ pub fn parse(code: String) -> (String, usize) {
                     let val = *s.get(2).unwrap();
                     Instruction::Set(v, parse_byte(val, line))
                 }
-                "char" => {
+                "setchar" => {
                     if s.len() != 3 {
                         panic!(
-                            "Invalid line '{}': not a valid char expression - requires 2 args",
+                            "Invalid line '{}': not a valid setchar expression - requires 2 args",
                             line
                         );
                     }
@@ -360,7 +366,7 @@ pub fn parse(code: String) -> (String, usize) {
                 "add" => {
                     if s.len() != 3 {
                         panic!(
-                            "Invalid line '{}': not a valid let expression - requires 2 args",
+                            "Invalid line '{}': not a valid add expression - requires 2 args",
                             line
                         );
                     }
@@ -371,7 +377,7 @@ pub fn parse(code: String) -> (String, usize) {
                 "sub" => {
                     if s.len() != 3 {
                         panic!(
-                            "Invalid line '{}': not a valid let expression - requires 2 args",
+                            "Invalid line '{}': not a valid sub expression - requires 2 args",
                             line
                         );
                     }
@@ -438,6 +444,17 @@ pub fn parse(code: String) -> (String, usize) {
                         panic!("Invalid line '{}': halt does not take arguments", line);
                     }
                     Instruction::Halt
+                },
+                "mul" => {
+                    if s.len() != 3 {
+                        panic!(
+                            "Invalid line '{}': not a valid mul expression - requires 2 args",
+                            line
+                        );
+                    }
+                    let v1 = position_of_var_expr(macro_mode, *s.get(1).unwrap(), &var_map, line);
+                    let v2 = position_of_var_expr(macro_mode, *s.get(2).unwrap(), &var_map, line);
+                    Instruction::Mul(v1, v2)
                 }
                 _ => panic!("Invalid line '{}': unknown instruction", line),
             };
@@ -520,7 +537,7 @@ fn to_bf(instructions: Vec<Instruction>) -> String {
                 dp = mv(&mut code, c2 as isize, dp); // then move to and inc c2
                 code.push('+');
                 dp = mv(&mut code, -(c2 as isize), dp); // then move back to 0
-                code.push(']') // end loop
+                code.push(']'); // end loop
             }
             Instruction::Inc(c, v) => {
                 code.push_str(format!(" inc({};{}): ", c, v).as_str());
@@ -597,6 +614,86 @@ fn to_bf(instructions: Vec<Instruction>) -> String {
                 code.push('+'); // set c0 to 1 so the loop executes
                 code.push_str("[]");
             }
+            Instruction::Mul(c1, c2) => {
+                code.push_str(format!(" mul({};{}): ", c1, c2).as_str());
+                let offset_c2_to_c1 = calculate_offset(c2, c1);
+                let offset_c1_to_rb = -(c1 as isize) + 1; // rb is idx 1
+                dp = mv(&mut code, calculate_offset(dp, c1), dp); // now at c1
+
+                // move c1 into ra and rb
+                dp = mv(&mut code, offset_c1_to_rb, dp); // now at rb
+                setzero(&mut code);
+                dp = mv(&mut code, -1, dp); // now at ra
+                setzero(&mut code);
+
+                dp = mv(&mut code, c1 as isize, dp); // now at c1
+                code.push_str("[-"); // start loop and dec c1
+                dp = mv(&mut code, offset_c1_to_rb, dp); // now at rb
+                code.push('+'); // inc rb
+                dp = mv(&mut code, -1, dp); // now at ra
+                code.push_str("+"); // inc ra
+                dp = mv(&mut code, c1 as isize, dp); // move back to c1
+                code.push_str("]"); // end loop
+
+                // multiply with c2 as counter
+                dp = mv(&mut code, -offset_c2_to_c1, dp); // now at c2
+                code.push_str("[-"); // start mul loop and dec c2
+
+                // add ra to c1 and rc
+                dp = mv(&mut code, -(c2 as isize), dp); // now at ra
+                code.push_str("[-"); // start add loop and dec ra
+                dp = mv(&mut code, c1 as isize, dp); // now at c1
+                code.push_str("+"); // inc c1
+                dp = mv(&mut code, calculate_offset(c1, 2), dp); // move to rc
+                code.push_str("+"); // inc rc
+                dp = mv(&mut code, -2, dp); // move back to ra
+                code.push_str("]"); // end add loop
+
+                // restore rc into ra
+                dp = mv(&mut code, 2, dp); // now at rc
+                code.push_str("[-"); // start loop and dec rc
+                dp = mv(&mut code, -2, dp); // now at ra
+                code.push_str("+"); // inc ra
+                dp = mv(&mut code, 2, dp); // move back to rc
+                code.push_str("]"); // end loop
+
+                dp = mv(&mut code, calculate_offset(2, c2), dp); // move back to c2
+                code.push_str("]"); // end mul loop
+            }
+            Instruction::Div(c1, c2) => {
+                code.push_str(format!(" div({};{}): ", c1, c2).as_str());
+
+                dp = mv(&mut code, -(dp as isize), dp); // now at ra
+                setzero(&mut code);
+                code.push('+'); // ra is now 1
+                dp = mv(&mut code, c2 as isize, dp); // now at c2
+
+                // ensure c2 neq 0, else halt
+                code.push_str("["); // this loop is only entered if c2 neq 0
+                // move c2 to rb to avoid infinite loop
+                code.push_str("[-"); // start inner loop and dec c2
+                dp = mv(&mut code, -(c2 as isize) + 1, dp); // now at rb
+                code.push_str("+"); // inc rb
+                dp = mv(&mut code, c2 as isize - 1, dp); // move back to c2
+                code.push_str("]"); // end inner loop;
+                // set ra to zero
+                dp = mv(&mut code, -(c2 as isize), dp); // now at ra
+                setzero(&mut code);
+                dp = mv(&mut code, c2 as isize, dp); // move back to c2
+                code.push_str("]"); // end loop
+                // go to ra and enter infinite loop if it is still 1
+                dp = mv(&mut code, -(c2 as isize), dp); // now at ra
+                code.push_str("[]"); // halt if ra neq 0
+                // move rb back into c2
+                dp = mv(&mut code, 1, dp); // now at rb
+                code.push_str("[-"); // begin loop and dec rb
+                dp = mv(&mut code, (c2 as isize) - 1, dp); // now at c2
+                code.push_str("+"); // inc c2
+                dp = mv(&mut code, -(c2 as isize) + 1, dp); // move back to rb
+                code.push_str("]"); // end loop
+
+                // TODO
+            }
         }
     }
 
@@ -633,4 +730,6 @@ enum Instruction {
     Print(usize),
     Input(usize),
     Halt,
+    Mul(usize, usize),
+    Div(usize, usize),
 }
